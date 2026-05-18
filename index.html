@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>歩行統制フリッカー（完全版・音トラブル対策済）</title>
+    <title>歩行統制フリッカー（音トラブル完全対策版）</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
         #flicker-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
@@ -18,7 +18,7 @@
         button { padding: 8px 16px; font-size: 14px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; }
         select, input[type="range"] { width: 100%; margin-top: 5px; }
 
-        /* ★オーディオ有効化用の案内画面スタイル */
+        /* オーディオ有効化用の案内画面スタイル */
         #audio-init-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.95); color: #fff; z-index: 9999;
@@ -32,7 +32,7 @@
 </head>
 <body>
 
-    <!-- ★GitHub対応：ブラウザの音ブロックを確実に解除するための画面 -->
+    <!-- ブラウザの音ブロックを確実に解除するための画面 -->
     <div id="audio-init-overlay">
         <div>実験準備：下のボタンを押して音声を有効にしてください</div>
         <button id="audio-init-btn">🔊 音声を有効にして始める</button>
@@ -80,7 +80,6 @@
         const configPanel = document.getElementById('config-panel');
         const countdownDisplay = document.getElementById('countdown');
         
-        // オーディオ初期化用要素
         const audioInitOverlay = document.getElementById('audio-init-overlay');
         const audioInitBtn = document.getElementById('audio-init-btn');
 
@@ -94,46 +93,64 @@
 
         let audioCtx = null;
 
-        // ★最初のボタンクリックで確実にブラウザの音声を解放する処理
+        // 音を生成して鳴らすコア関数
+        function forcePlayTone(frequency, durationMs) {
+            try {
+                if (!audioCtx) return;
+                const osc = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                osc.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.value = frequency; 
+                
+                const startTime = audioCtx.currentTime;
+                const endTime = startTime + (durationMs / 1000);
+                
+                gainNode.gain.setValueAtTime(0.3, startTime); 
+                gainNode.gain.exponentialRampToValueAtTime(0.001, endTime); 
+                
+                osc.start(startTime);
+                osc.stop(endTime);
+            } catch (e) {
+                console.error("発音エラー:", e);
+            }
+        }
+
+        // 定期点滅中に使う発音関数（isSoundEnabledフラグをチェックする）
+        function playTone(frequency, durationMs) {
+            if (!isSoundEnabled) return; 
+            forcePlayTone(frequency, durationMs);
+        }
+
+        // ★最初のボタンクリックで「AudioContextの作成」「再開」「テスト発音」をすべて同時に行う
         audioInitBtn.addEventListener('click', () => {
+            // 1. 作成
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-            // 音が有効になったら案内画面を消す
-            audioInitOverlay.style.display = 'none';
+            
+            // 2. アクティブ化して、完了した瞬間にテスト音を鳴らす
+            audioCtx.resume().then(() => {
+                // ボタンを押した瞬間に「プッ」と一瞬鳴らす（これでブラウザのブロックが完全に破られます）
+                forcePlayTone(1000, 30); 
+                
+                // 案内画面を消す
+                audioInitOverlay.style.display = 'none';
+            }).catch(err => {
+                console.error("Audio resume error:", err);
+                audioInitOverlay.style.display = 'none';
+            });
         });
-
-        function playTone(frequency, durationMs) {
-            if (!audioCtx || !isSoundEnabled) return; 
-            
-            const osc = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            
-            osc.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            
-            osc.type = 'sine';
-            osc.frequency.value = frequency; 
-            
-            const startTime = audioCtx.currentTime;
-            const endTime = startTime + (durationMs / 1000);
-            
-            gainNode.gain.setValueAtTime(0.3, startTime); 
-            gainNode.gain.exponentialRampToValueAtTime(0.001, endTime); 
-            
-            osc.start(startTime);
-            osc.stop(endTime);
-        }
 
         slider.addEventListener('input', (e) => { bpm = e.target.value; bpmVal.textContent = bpm; });
         modeSelect.addEventListener('change', (e) => { mode = e.target.value; });
 
         // 実験開始
         startBtn.addEventListener('click', () => {
-            // ここでも念のため再アクティブ化
+            // 実験開始時にも念のため状態をチェック
             if (audioCtx && audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
@@ -173,7 +190,7 @@
                 } else {
                     clearInterval(timer);
                     countdownDisplay.style.display = 'none'; 
-                    isSoundEnabled = false; 
+                    isSoundEnabled = false; // ★ここで本番モードになり音が止まる
                 }
             }, 1000);
         }
