@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>歩行統制フリッカー（完全版・Esc終了限定）</title>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
+        
+        /* 通常時のコンテナ設定 */
+        #flicker-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
+        
+        /* ★実験中（フルスクリーン時）はマウスカーソルを非表示にする設定 */
+        :fullscreen #flicker-container { cursor: none; }
+        
+        /* 左右の丸を並べるエリア */
+        #stage { display: flex; gap: 600px; z-index: 1; } 
+        
+        .circle { width: 150px; height: 150px; background-color: #FFF; border-radius: 50%; opacity: 0; transition: opacity 0s; }
+        .circle::after { content: attr(data-label); display: flex; justify-content: center; align-items: center; height: 100%; color: #000; font-size: 40px; font-weight: bold; }
+        #countdown { position: absolute; color: #FFF; font-size: 140px; font-weight: bold; display: none; z-index: 10; text-shadow: 0 0 20px #000; pointer-events: none; }
+        
+        /* 操作パネル */
+        #config-panel { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.95); padding: 20px; border-radius: 8px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #000; }
+        .control-group { margin-bottom: 15px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        select, input[type="range"] { width: 100%; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+    <!-- 操作パネル -->
+    <div id="config-panel">
+        <div class="control-group">
+            <label style="font-weight: bold;">全体テンポ (BPM): <span id="bpm-val">110</span></label><br>
+            <input type="range" id="bpm-slider" min="60" max="200" value="110">
+        </div>
+        <div class="control-group">
+            <label style="font-weight: bold;">点滅モード:</label><br>
+            <select id="mode-select">
+                <option value="alternate">左右交互（右スタート）</option>
+                <option value="simultaneous">表示のみ</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <button id="start-btn">▶ 実験開始</button>
+        </div>
+        <div>
+            <!-- ★説明テキストを修正 -->
+            <p style="margin: 0; font-size: 11px; color: #666;">※キーボードの Esc キーで解除・停止</p>
+        </div>
+    </div>
+
+    <!-- 実験画面 -->
+    <div id="flicker-container">
+        <div id="countdown"></div>
+        <div id="stage">
+            <div id="circle-left" class="circle" data-label=""></div>
+            <div id="circle-right" class="circle" data-label=""></div>
+        </div>
+    </div>
+
+    <script>
+        const container = document.getElementById('flicker-container');
+        const stage = document.getElementById('stage');
+        const leftCircle = document.getElementById('circle-left');
+        const rightCircle = document.getElementById('circle-right');
+        const slider = document.getElementById('bpm-slider');
+        const bpmVal = document.getElementById('bpm-val');
+        const modeSelect = document.getElementById('mode-select');
+        const startBtn = document.getElementById('start-btn');
+        const configPanel = document.getElementById('config-panel');
+        const countdownDisplay = document.getElementById('countdown');
+
+        let bpm = 110;
+        let mode = 'alternate';
+        let isPlaying = false;
+        let isSoundEnabled = true; 
+        let lastTimestamp = 0;
+        let beatCount = 0; 
+        const flashDuration = 50; 
+
+        let audioCtx = null;
+
+        function playTone(frequency, durationMs) {
+            if (!audioCtx || !isSoundEnabled) return; 
+            
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.value = frequency; 
+            
+            const startTime = audioCtx.currentTime;
+            const endTime = startTime + (durationMs / 1000);
+            
+            gainNode.gain.setValueAtTime(0.3, startTime); 
+            gainNode.gain.exponentialRampToValueAtTime(0.001, endTime); 
+            
+            osc.start(startTime);
+            osc.stop(endTime);
+        }
+
+        slider.addEventListener('input', (e) => { bpm = e.target.value; bpmVal.textContent = bpm; });
+        modeSelect.addEventListener('change', (e) => { mode = e.target.value; });
+
+        // 実験開始
+        startBtn.addEventListener('click', () => {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            if (mode === 'simultaneous') {
+                stage.style.gap = '0px';
+                leftCircle.style.display = 'none'; 
+                rightCircle.setAttribute('data-label', ''); 
+            } else {
+                stage.style.gap = ''; 
+                leftCircle.style.display = 'block';
+                rightCircle.setAttribute('data-label', '');
+            }
+
+            document.documentElement.requestFullscreen().then(() => {
+                configPanel.style.display = 'none';
+                isSoundEnabled = true; 
+                isPlaying = true;
+                beatCount = 0; 
+                lastTimestamp = performance.now();
+                runCountdown();
+            }).catch(err => {
+                alert(`フルスクリーンエラー: ${err.message}`);
+            });
+        });
+
+        // カウントダウン制御
+        function runCountdown() {
+            countdownDisplay.style.display = 'block';
+            let count = 3;
+            countdownDisplay.textContent = count;
+
+            const timer = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownDisplay.textContent = count;
+                } else {
+                    clearInterval(timer);
+                    countdownDisplay.style.display = 'none'; 
+                    isSoundEnabled = false; 
+                }
+            }, 1000);
+        }
+
+        // ★【修正点】画面クリックイベント（container.addEventListener('click', ...）を完全に削除しました。
+
+        // フルスクリーン状態の変更（Escキーが押されたときのみここが発火します）
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                isPlaying = false;
+                isSoundEnabled = false;
+                leftCircle.style.opacity = 0;
+                rightCircle.style.opacity = 0;
+                countdownDisplay.style.display = 'none';
+                configPanel.style.display = 'block';
+            }
+        });
+
+        // アニメーションループ
+        function loop(timestamp) {
+            if (isPlaying) {
+                const interval = 60000 / bpm; 
+                const elapsed = timestamp - lastTimestamp;
+
+                if (elapsed >= interval) {
+                    if (mode === 'simultaneous') {
+                        leftCircle.style.opacity = 0;
+                        rightCircle.style.opacity = 1;
+                        playTone(800, flashDuration); 
+                    } else {
+                        if (beatCount % 2 === 0) {
+                            leftCircle.style.opacity = 0;
+                            rightCircle.style.opacity = 1; 
+                        } else {
+                            leftCircle.style.opacity = 1;
+                            rightCircle.style.opacity = 0; 
+                        }
+                        playTone(800, flashDuration); 
+                    }
+                    
+                    beatCount++;
+                    lastTimestamp = timestamp - (elapsed % interval); 
+                } 
+                else if (elapsed >= flashDuration) {
+                    leftCircle.style.opacity = 0;
+                    rightCircle.style.opacity = 0;
+                }
+            }
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
