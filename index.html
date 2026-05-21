@@ -2,21 +2,27 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>歩行統制フリッカー（音トラブル完全対策版）</title>
+    <title>歩行統制フリッカー（ローカル音対策完了版）</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
         #flicker-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
+        
+        /* 実験中（フルスクリーン時）はマウスカーソルを完全に非表示にする */
         :fullscreen #flicker-container { cursor: none; }
+        
+        /* 左右の丸を並べるエリア */
         #stage { display: flex; gap: 600px; z-index: 1; } 
-        .circle { width: 150px; height: 150px; background-color: #FFF; border-radius: 50%; opacity: 0; transition: opacity 0s; }
-        .circle::after { content: attr(data-label); display: flex; justify-content: center; align-items: center; height: 100%; color: #000; font-size: 40px; font-weight: bold; }
+        
+        /* 丸の基本スタイル（位置固定のため常に配置） */
+        .circle { width: 150px; height: 150px; border-radius: 50%; background-color: #000; }
+        
         #countdown { position: absolute; color: #FFF; font-size: 140px; font-weight: bold; display: none; z-index: 10; text-shadow: 0 0 20px #000; pointer-events: none; }
         
         /* 操作パネル */
-        #config-panel { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.95); padding: 20px; border-radius: 8px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #000; }
+        #config-panel { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.95); padding: 20px; border-radius: 8px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #000; width: 220px; }
         .control-group { margin-bottom: 15px; }
-        button { padding: 8px 16px; font-size: 14px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; }
-        select, input[type="range"] { width: 100%; margin-top: 5px; }
+        button { padding: 8px 16px; font-size: 14px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; width: 100%; }
+        select, input[type="range"] { width: 100%; margin-top: 5px; padding: 4px; box-sizing: border-box; }
 
         /* オーディオ有効化用の案内画面スタイル */
         #audio-init-overlay {
@@ -26,7 +32,7 @@
             font-size: 20px; font-weight: bold; cursor: pointer;
         }
         #audio-init-overlay button {
-            margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;
+            margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; width: auto;
         }
     </style>
 </head>
@@ -44,18 +50,32 @@
             <label style="font-weight: bold;">全体テンポ (BPM): <span id="bpm-val">110</span></label><br>
             <input type="range" id="bpm-slider" min="60" max="200" value="110">
         </div>
+        
         <div class="control-group">
             <label style="font-weight: bold;">点滅モード:</label><br>
             <select id="mode-select">
                 <option value="alternate">左右交互（右スタート）</option>
-                <option value="simultaneous">表示のみ</option>
+                <option value="simultaneous">表示のみ（中央に1つ）</option>
             </select>
         </div>
+
+        <!-- 使用するモニターのリフレッシュレート設定項目 -->
+        <div class="control-group">
+            <label style="font-weight: bold;">使用モニター (Hz):</label><br>
+            <select id="hz-select">
+                <option value="60">60 Hzモニター (3フレーム点灯)</option>
+                <option value="120">120 Hzモニター (6フレーム点灯)</option>
+                <option value="144">144 Hzモニター (7フレーム点灯)</option>
+                <option value="240">240 Hzモニター (12フレーム点灯)</option>
+            </select>
+            <p style="margin: 3px 0 0 0; font-size: 11px; color: #555;">※点灯時間を一律 約50ms に統制します</p>
+        </div>
+
         <div class="control-group">
             <button id="start-btn">▶ 実験開始</button>
         </div>
         <div>
-            <p style="margin: 0; font-size: 11px; color: #666;">※キーボードの Esc キーで解除・停止</p>
+            <p style="margin: 0; font-size: 11px; color: #666; text-align: center;">※キーボードの Esc キーで解除・停止</p>
         </div>
     </div>
 
@@ -63,8 +83,8 @@
     <div id="flicker-container">
         <div id="countdown"></div>
         <div id="stage">
-            <div id="circle-left" class="circle" data-label=""></div>
-            <div id="circle-right" class="circle" data-label=""></div>
+            <div id="circle-left" class="circle"></div>
+            <div id="circle-right" class="circle"></div>
         </div>
     </div>
 
@@ -76,6 +96,7 @@
         const slider = document.getElementById('bpm-slider');
         const bpmVal = document.getElementById('bpm-val');
         const modeSelect = document.getElementById('mode-select');
+        const hzSelect = document.getElementById('hz-select'); 
         const startBtn = document.getElementById('start-btn');
         const configPanel = document.getElementById('config-panel');
         const countdownDisplay = document.getElementById('countdown');
@@ -89,15 +110,25 @@
         let isSoundEnabled = true; 
         let lastTimestamp = 0;
         let beatCount = 0; 
-        const flashDuration = 50; 
+        
+        // 初期値は60Hz用の「3フレーム」に設定。選択肢によって変動。
+        let flashFrames = 3; 
+        let currentFlashFrameCount = 0; 
 
         let audioCtx = null;
 
-        // 音を生成して鳴らすコア関数
+        // 電子音を生成して即座に鳴らす、最もクリーンな関数
         function forcePlayTone(frequency, durationMs) {
             try {
-                if (!audioCtx) return;
-                const osc = audioCtx.createOscillator();
+                // 音声コンテキストが作成されていない、または停止している場合は即座に作成・再開を試みる
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                const osc = audioCtx.createOscillator(); 
                 const gainNode = audioCtx.createGain();
                 
                 osc.connect(gainNode);
@@ -119,26 +150,20 @@
             }
         }
 
-        // 定期点滅中に使う発音関数（isSoundEnabledフラグをチェックする）
         function playTone(frequency, durationMs) {
             if (!isSoundEnabled) return; 
             forcePlayTone(frequency, durationMs);
         }
 
-        // ★最初のボタンクリックで「AudioContextの作成」「再開」「テスト発音」をすべて同時に行う
+        // 青い「音声を有効にして始める」ボタンが押されたときの処理
         audioInitBtn.addEventListener('click', () => {
-            // 1. 作成
+            // 最初の一歩で確実に回路を初期化して起こす
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
-            
-            // 2. アクティブ化して、完了した瞬間にテスト音を鳴らす
             audioCtx.resume().then(() => {
-                // ボタンを押した瞬間に「プッ」と一瞬鳴らす（これでブラウザのブロックが完全に破られます）
-                forcePlayTone(1000, 30); 
-                
-                // 案内画面を消す
-                audioInitOverlay.style.display = 'none';
+                forcePlayTone(1000, 30); // 起動テスト音「プッ」
+                audioInitOverlay.style.display = 'none'; // 案内画面を隠す
             }).catch(err => {
                 console.error("Audio resume error:", err);
                 audioInitOverlay.style.display = 'none';
@@ -147,29 +172,48 @@
 
         slider.addEventListener('input', (e) => { bpm = e.target.value; bpmVal.textContent = bpm; });
         modeSelect.addEventListener('change', (e) => { mode = e.target.value; });
+        
+        // モニター選択（Hz）が変更されたときの処理
+        hzSelect.addEventListener('change', (e) => {
+            const hz = parseInt(e.target.value);
+            if (hz === 120) {
+                flashFrames = 6;
+            } else if (hz === 144) {
+                flashFrames = 7;
+            } else if (hz === 240) {
+                flashFrames = 12;
+            } else {
+                flashFrames = 3; 
+            }
+        });
 
-        // 実験開始
+        // 「▶ 実験開始」ボタンを押したときの処理
         startBtn.addEventListener('click', () => {
-            // 実験開始時にも念のため状態をチェック
-            if (audioCtx && audioCtx.state === 'suspended') {
+            // 実験開始のクリック時にも、しつこいくらい確実にオーディオ回路を再起動させる
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
 
             if (mode === 'simultaneous') {
                 stage.style.gap = '0px';
                 leftCircle.style.display = 'none'; 
-                rightCircle.setAttribute('data-label', ''); 
             } else {
-                stage.style.gap = ''; 
-                leftCircle.style.display = 'block';
-                rightCircle.setAttribute('data-label', '');
+                stage.style.gap = '600px'; 
+                leftCircle.style.display = 'block'; 
             }
+            
+            leftCircle.style.backgroundColor = '#000';
+            rightCircle.style.backgroundColor = '#000';
 
             document.documentElement.requestFullscreen().then(() => {
                 configPanel.style.display = 'none';
                 isSoundEnabled = true; 
                 isPlaying = true;
                 beatCount = 0; 
+                currentFlashFrameCount = 0;
                 lastTimestamp = performance.now();
                 runCountdown();
             }).catch(err => {
@@ -190,18 +234,19 @@
                 } else {
                     clearInterval(timer);
                     countdownDisplay.style.display = 'none'; 
-                    isSoundEnabled = false; // ★ここで本番モードになり音が止まる
+                    isSoundEnabled = false; // ★ここで本番消音モード
                 }
             }, 1000);
         }
 
-        // フルスクリーン状態の変更
+        // フルスクリーン終了時（Esc解除）のリセット
         document.addEventListener('fullscreenchange', () => {
             if (!document.fullscreenElement) {
                 isPlaying = false;
                 isSoundEnabled = false;
-                leftCircle.style.opacity = 0;
-                rightCircle.style.opacity = 0;
+                leftCircle.style.display = 'block'; 
+                leftCircle.style.backgroundColor = '#000';
+                rightCircle.style.backgroundColor = '#000';
                 countdownDisplay.style.display = 'none';
                 configPanel.style.display = 'block';
             }
@@ -215,26 +260,30 @@
 
                 if (elapsed >= interval) {
                     if (mode === 'simultaneous') {
-                        leftCircle.style.opacity = 0;
-                        rightCircle.style.opacity = 1;
-                        playTone(800, flashDuration); 
+                        rightCircle.style.backgroundColor = '#FFF'; 
                     } else {
                         if (beatCount % 2 === 0) {
-                            leftCircle.style.opacity = 0;
-                            rightCircle.style.opacity = 1; 
+                            leftCircle.style.backgroundColor = '#000';
+                            rightCircle.style.backgroundColor = '#FFF'; 
                         } else {
-                            leftCircle.style.opacity = 1;
-                            rightCircle.style.opacity = 0; 
+                            leftCircle.style.backgroundColor = '#FFF'; 
+                            rightCircle.style.backgroundColor = '#000';
                         }
-                        playTone(800, flashDuration); 
                     }
                     
+                    playTone(800, 50); // カウントダウン中（3, 2, 1）だけ音がピッと鳴る
+                    
                     beatCount++;
+                    currentFlashFrameCount = 1; 
                     lastTimestamp = timestamp - (elapsed % interval); 
                 } 
-                else if (elapsed >= flashDuration) {
-                    leftCircle.style.opacity = 0;
-                    rightCircle.style.opacity = 0;
+                else if (currentFlashFrameCount > 0) {
+                    currentFlashFrameCount++;
+                    if (currentFlashFrameCount > flashFrames) {
+                        leftCircle.style.backgroundColor = '#000';
+                        rightCircle.style.backgroundColor = '#000';
+                        currentFlashFrameCount = 0; 
+                    }
                 }
             }
             requestAnimationFrame(loop);
