@@ -63,12 +63,12 @@
         <div class="control-group">
             <label style="font-weight: bold;">使用モニター (Hz):</label><br>
             <select id="hz-select">
-                <option value="60">60 Hzモニター (3フレーム点灯)</option>
-                <option value="120">120 Hzモニター (6フレーム点灯)</option>
-                <option value="144">144 Hzモニター (7フレーム点灯)</option>
-                <option value="240">240 Hzモニター (12フレーム点灯)</option>
+                <option value="60">60 Hzモニター</option>
+                <option value="120">120 Hzモニター</option>
+                <option value="144">144 Hzモニター</option>
+                <option value="240">240 Hzモニター</option>
             </select>
-            <p style="margin: 3px 0 0 0; font-size: 11px; color: #555;">※点灯時間を一律 約50ms に統制します</p>
+            <p style="margin: 3px 0 0 0; font-size: 11px; color: #555;">※点灯時間を一律 約100ms に統制します</p>
         </div>
 
         <div class="control-group">
@@ -112,7 +112,7 @@
         let beatCount = 0; 
         
         // 初期値は60Hz用の「3フレーム」に設定。選択肢によって変動。
-        let flashFrames = 3; 
+        let flashFrames = 6; 
         let currentFlashFrameCount = 0; 
 
         let audioCtx = null;
@@ -177,13 +177,13 @@
         hzSelect.addEventListener('change', (e) => {
             const hz = parseInt(e.target.value);
             if (hz === 120) {
-                flashFrames = 6;
-            } else if (hz === 144) {
-                flashFrames = 7;
-            } else if (hz === 240) {
                 flashFrames = 12;
+            } else if (hz === 144) {
+                flashFrames = 14;
+            } else if (hz === 240) {
+                flashFrames = 24;
             } else {
-                flashFrames = 3; 
+                flashFrames = 6; 
             }
         });
 
