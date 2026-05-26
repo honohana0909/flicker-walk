@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>歩行統制フリッカー（ローカル音対策完了版）</title>
+    <title>歩行統制フリッカー</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
         #flicker-container { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; position: relative; }
@@ -15,8 +15,6 @@
         
         /* 丸の基本スタイル（位置固定のため常に配置） */
         .circle { width: 150px; height: 150px; border-radius: 50%; background-color: #000; }
-        
-        #countdown { position: absolute; color: #FFF; font-size: 140px; font-weight: bold; display: none; z-index: 10; text-shadow: 0 0 20px #000; pointer-events: none; }
         
         /* 操作パネル */
         #config-panel { position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.95); padding: 20px; border-radius: 8px; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #000; width: 220px; }
@@ -34,17 +32,29 @@
         #audio-init-overlay button {
             margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; width: auto;
         }
+
+        /* ★3秒前カウント専用：特大・ゴールド・太字 */
+        #countdown-start {
+            position: absolute; color: #FFF; font-size: 300px; font-weight: bold; 
+            display: none; z-index: 10; text-shadow: 0 0 20px #000; pointer-events: none;
+            font-family: 'Impact', 'Arial Black', sans-serif;
+        }
+        
+        /* ★フリッカー中の10回カウント専用：標準・白・通常のゴシック */
+        #countdown-flicker {
+            position: absolute; color: #FFF; font-size: 140px; font-weight: bold; 
+            display: none; z-index: 10; text-shadow: 0 0 20px #000; pointer-events: none;
+            font-family: sans-serif;
+        }
     </style>
 </head>
 <body>
 
-    <!-- ブラウザの音ブロックを確実に解除するための画面 -->
     <div id="audio-init-overlay">
         <div>実験準備：下のボタンを押して音声を有効にしてください</div>
         <button id="audio-init-btn">🔊 音声を有効にして始める</button>
     </div>
 
-    <!-- 操作パネル -->
     <div id="config-panel">
         <div class="control-group">
             <label style="font-weight: bold;">全体テンポ (BPM): <span id="bpm-val">110</span></label><br>
@@ -59,7 +69,6 @@
             </select>
         </div>
 
-        <!-- 使用するモニターのリフレッシュレート設定項目 -->
         <div class="control-group">
             <label style="font-weight: bold;">使用モニター (Hz):</label><br>
             <select id="hz-select">
@@ -79,9 +88,10 @@
         </div>
     </div>
 
-    <!-- 実験画面 -->
     <div id="flicker-container">
-        <div id="countdown"></div>
+        <div id="countdown-start"></div>
+        <div id="countdown-flicker"></div>
+        
         <div id="stage">
             <div id="circle-left" class="circle"></div>
             <div id="circle-right" class="circle"></div>
@@ -99,7 +109,10 @@
         const hzSelect = document.getElementById('hz-select'); 
         const startBtn = document.getElementById('start-btn');
         const configPanel = document.getElementById('config-panel');
-        const countdownDisplay = document.getElementById('countdown');
+        
+        // ★分離した表示エリアをそれぞれ取得
+        const countdownStartDisplay = document.getElementById('countdown-start');
+        const countdownFlickerDisplay = document.getElementById('countdown-flicker');
         
         const audioInitOverlay = document.getElementById('audio-init-overlay');
         const audioInitBtn = document.getElementById('audio-init-btn');
@@ -111,7 +124,7 @@
         let lastTimestamp = 0;
         let beatCount = 0; 
         
-        // 初期値は60Hz用の「3フレーム」に設定。選択肢によって変動。
+        // 初期値は60Hz用の「6フレーム」に設定（約100ms）。選択肢によって変動。
         let flashFrames = 6; 
         let currentFlashFrameCount = 0; 
 
@@ -120,7 +133,6 @@
         // 電子音を生成して即座に鳴らす、最もクリーンな関数
         function forcePlayTone(frequency, durationMs) {
             try {
-                // 音声コンテキストが作成されていない、または停止している場合は即座に作成・再開を試みる
                 if (!audioCtx) {
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 }
@@ -157,13 +169,12 @@
 
         // 青い「音声を有効にして始める」ボタンが押されたときの処理
         audioInitBtn.addEventListener('click', () => {
-            // 最初の一歩で確実に回路を初期化して起こす
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
             audioCtx.resume().then(() => {
-                forcePlayTone(1000, 30); // 起動テスト音「プッ」
-                audioInitOverlay.style.display = 'none'; // 案内画面を隠す
+                forcePlayTone(1000, 30); 
+                audioInitOverlay.style.display = 'none'; 
             }).catch(err => {
                 console.error("Audio resume error:", err);
                 audioInitOverlay.style.display = 'none';
@@ -189,7 +200,6 @@
 
         // 「▶ 実験開始」ボタンを押したときの処理
         startBtn.addEventListener('click', () => {
-            // 実験開始のクリック時にも、しつこいくらい確実にオーディオ回路を再起動させる
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
@@ -211,10 +221,9 @@
             document.documentElement.requestFullscreen().then(() => {
                 configPanel.style.display = 'none';
                 isSoundEnabled = true; 
-                isPlaying = true;
+                isPlaying = false; // まだループは動かさない
                 beatCount = 0; 
                 currentFlashFrameCount = 0;
-                lastTimestamp = performance.now();
                 runCountdown();
             }).catch(err => {
                 alert(`フルスクリーンエラー: ${err.message}`);
@@ -223,18 +232,24 @@
 
         // カウントダウン制御
         function runCountdown() {
-            countdownDisplay.style.display = 'block';
+            // ★3秒前専用の表示エリアをON
+            countdownStartDisplay.style.display = 'block';
+            countdownFlickerDisplay.style.display = 'none';
+
             let count = 3;
-            countdownDisplay.textContent = count;
+            countdownStartDisplay.textContent = count;
 
             const timer = setInterval(() => {
                 count--;
                 if (count > 0) {
-                    countdownDisplay.textContent = count;
+                    countdownStartDisplay.textContent = count;
                 } else {
                     clearInterval(timer);
-                    countdownDisplay.style.display = 'none'; 
-                    isSoundEnabled = false; // ★ここで本番消音モード
+                    countdownStartDisplay.style.display = 'none'; // 3秒前文字を消す
+                    
+                    // タイポを修正し、基準時間を正確に取得して起動
+                    lastTimestamp = performance.now(); 
+                    isPlaying = true; 
                 }
             }, 1000);
         }
@@ -247,36 +262,71 @@
                 leftCircle.style.display = 'block'; 
                 leftCircle.style.backgroundColor = '#000';
                 rightCircle.style.backgroundColor = '#000';
-                countdownDisplay.style.display = 'none';
+                countdownStartDisplay.style.display = 'none';
+                countdownFlickerDisplay.style.display = 'none';
                 configPanel.style.display = 'block';
             }
         });
 
-        // アニメーションループ
+        // アニメーションループ（最初の1拍目はダミー、2拍目から10, 9...1とカウント開始）
         function loop(timestamp) {
             if (isPlaying) {
                 const interval = 60000 / bpm; 
                 const elapsed = timestamp - lastTimestamp;
 
+                // 1. 点滅の周期（タイミング）が来た瞬間
                 if (elapsed >= interval) {
-                    if (mode === 'simultaneous') {
-                        rightCircle.style.backgroundColor = '#FFF'; 
-                    } else {
-                        if (beatCount % 2 === 0) {
+                    
+                    // beatCount = 0（最初の一拍目）はダミー期間
+                    if (beatCount === 0) {
+                        countdownFlickerDisplay.style.display = 'none';
+                        leftCircle.style.backgroundColor = '#000';
+                        rightCircle.style.backgroundColor = '#000';
+                    }
+                    // beatCount = 1 〜 10 （実際のカウントダウン10回分）
+                    else if (beatCount >= 1 && beatCount <= 10) {
+                        isSoundEnabled = true; 
+                        
+                        const displayCount = 11 - beatCount;
+                        
+                        // ★フリッカー専用の表示エリアをONにして値を代入
+                        countdownFlickerDisplay.style.display = 'block';
+                        countdownFlickerDisplay.textContent = displayCount;
+                        
+                        // 偶数は右、奇数は左を点灯（10, 8, 6, 4, 2 = 右 / 9, 7, 5, 3, 1 = 左）
+                        if (displayCount % 2 === 0) {
                             leftCircle.style.backgroundColor = '#000';
                             rightCircle.style.backgroundColor = '#FFF'; 
                         } else {
                             leftCircle.style.backgroundColor = '#FFF'; 
                             rightCircle.style.backgroundColor = '#000';
                         }
+                        
+                        playTone(800, 50); 
+                    } 
+                    // beatCount = 11 以降（本番モード）
+                    else {
+                        countdownFlickerDisplay.style.display = 'none'; // フリッカー用文字を消す
+                        isSoundEnabled = false; 
+
+                        if (mode === 'simultaneous') {
+                            rightCircle.style.backgroundColor = '#FFF'; 
+                        } else {
+                            if (beatCount % 2 !== 0) {
+                                leftCircle.style.backgroundColor = '#000';
+                                rightCircle.style.backgroundColor = '#FFF'; 
+                            } else {
+                                leftCircle.style.backgroundColor = '#FFF'; 
+                                rightCircle.style.backgroundColor = '#000';
+                            }
+                        }
                     }
                     
-                    playTone(800, 50); // カウントダウン中（3, 2, 1）だけ音がピッと鳴る
-                    
-                    beatCount++;
+                    beatCount++; 
                     currentFlashFrameCount = 1; 
                     lastTimestamp = timestamp - (elapsed % interval); 
                 } 
+                // 2. 指定フレーム数経過したら消灯する処理
                 else if (currentFlashFrameCount > 0) {
                     currentFlashFrameCount++;
                     if (currentFlashFrameCount > flashFrames) {
